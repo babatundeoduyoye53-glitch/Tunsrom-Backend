@@ -41,15 +41,20 @@ const allowedOrigins = [
   'http://localhost:5173',
   'http://localhost:3000',
   'https://tunsrom-fabrics-p3gr.vercel.app',
+  'https://tunsrom-fabrics-p3gr-jlir842lx.vercel.app',
   process.env.FRONTEND_URL,
 ].filter(Boolean);
 
 app.use(cors({
   origin: (origin, callback) => {
-    // Allow requests with no origin (mobile apps, curl, server-to-server)
     if (!origin) return callback(null, true);
-    if (allowedOrigins.includes(origin)) return callback(null, true);
-    // Reject unknown origins silently — don't throw, just deny
+    // Allow any vercel.app subdomain for this project
+    if (
+      allowedOrigins.includes(origin) ||
+      /^https:\/\/tunsrom-fabrics[a-z0-9-]*\.vercel\.app$/.test(origin)
+    ) {
+      return callback(null, true);
+    }
     return callback(null, false);
   },
   credentials: true,
