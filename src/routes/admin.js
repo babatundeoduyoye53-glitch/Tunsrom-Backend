@@ -8,16 +8,6 @@ const { adminProtect } = require('../middleware/adminMiddleware');
 
 const router = express.Router();
 
-// GET /api/admin/auth/check — temporary debug endpoint
-router.get('/auth/check', (req, res) => {
-  res.json({
-    hasEmail: !!process.env.ADMIN_EMAIL,
-    hasPassword: !!process.env.ADMIN_PASSWORD,
-    hasJwtSecret: !!process.env.JWT_SECRET,
-    emailValue: process.env.ADMIN_EMAIL ? process.env.ADMIN_EMAIL.substring(0, 5) + '...' : 'NOT SET',
-  });
-});
-
 // POST /api/admin/auth/login
 router.post('/auth/login', async (req, res) => {
   try {
@@ -28,12 +18,12 @@ router.post('/auth/login', async (req, res) => {
     }
 
     const normalizedEmail = email.trim().toLowerCase();
-
-    // Use constant-time comparison for email to prevent timing attacks
     const adminEmail = (process.env.ADMIN_EMAIL || '').trim().toLowerCase();
+
     if (!adminEmail) {
       return res.status(500).json({ message: 'Admin credentials not configured on server.' });
     }
+
     if (normalizedEmail !== adminEmail) {
       return res.status(401).json({ message: 'Invalid admin email or password.' });
     }
@@ -43,13 +33,11 @@ router.post('/auth/login', async (req, res) => {
       return res.status(500).json({ message: 'Admin password not configured on server.' });
     }
 
-    // Always use bcrypt — if plain text is stored, hash it on first login
     let passwordMatch = false;
-    if (storedPassword.startsWith('$2b$') || storedPassword.startsWith('$2a$')) {
+    const isBcrypt = storedPassword.startsWith('$2b$') || storedPassword.startsWith('$2a$');
+    if (isBcrypt) {
       passwordMatch = await bcrypt.compare(password, storedPassword);
     } else {
-      // Plain-text fallback — still use bcrypt.compare via a dummy hash
-      // to prevent timing attacks even on plain-text comparison
       passwordMatch = password === storedPassword;
     }
 
@@ -95,23 +83,19 @@ router.get('/stats', adminProtect, async (req, res) => {
       pendingOrders: pendingCount,
     });
   } catch (error) {
-    const isDev = process.env.NODE_ENV !== 'production';
-    res.status(500).json({ message: isDev ? error.message : 'Failed to fetch stats.' });
+    res.status(500).json({ message: error.message });
   }
 });
 
-// GET /api/admin/stats/revenue  — daily revenue for the last 7 days (protected)
+// GET /api/admin/stats/revenue
 router.get('/stats/revenue', adminProtect, async (req, res) => {
   try {
     const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
     const now = new Date();
-
-    // Start of 6 days ago (inclusive) → end of today
     const startDate = new Date(now);
     startDate.setDate(now.getDate() - 6);
     startDate.setHours(0, 0, 0, 0);
 
-    // Single aggregation — group by calendar day
     const raw = await Order.aggregate([
       {
         $match: {
@@ -127,25 +111,22 @@ router.get('/stats/revenue', adminProtect, async (req, res) => {
       },
     ]);
 
-    // Build a lookup map from the aggregation result
     const revenueMap = {};
     for (const entry of raw) {
       revenueMap[entry._id] = entry.revenue;
     }
 
-    // Build the last 7 days in order, filling zeros for missing days
     const result = [];
     for (let i = 6; i >= 0; i--) {
       const date = new Date(now);
       date.setDate(now.getDate() - i);
-      const key = date.toISOString().slice(0, 10); // YYYY-MM-DD
+      const key = date.toISOString().slice(0, 10);
       result.push({ day: days[date.getDay()], revenue: revenueMap[key] ?? 0 });
     }
 
     res.json(result);
   } catch (error) {
-    const isDev = process.env.NODE_ENV !== 'production';
-    res.status(500).json({ message: isDev ? error.message : 'Failed to fetch revenue data.' });
+    res.status(500).json({ message: error.message });
   }
 });
 
