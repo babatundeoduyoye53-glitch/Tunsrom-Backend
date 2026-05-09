@@ -8,7 +8,7 @@ const { adminProtect } = require('../middleware/adminMiddleware');
 
 const router = express.Router();
 
-// POST /api/admin/auth/login
+// POST /api/admin/auth/login — v2
 router.post('/auth/login', async (req, res) => {
   try {
     const { email, password } = req.body;
