@@ -8,7 +8,7 @@ const { adminProtect } = require('../middleware/adminMiddleware');
 
 const router = express.Router();
 
-// POST /api/admin/auth/login — v2
+// POST /api/admin/auth/login
 router.post('/auth/login', async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -53,8 +53,8 @@ router.post('/auth/login', async (req, res) => {
 
     res.json({ token });
   } catch (error) {
-    console.error('Admin login error:', error.message, error.stack);
-    res.status(500).json({ message: error.message });
+    console.error('Admin login error:', error.message);
+    res.status(500).json({ message: 'Login failed. Please try again.' });
   }
 });
 

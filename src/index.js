@@ -144,9 +144,10 @@ app.use((req, res) => {
 // ── Global error handler ──────────────────────────────────────────────────────
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {
-  console.error('Global error:', err.message, err.stack);
+  const isDev = process.env.NODE_ENV !== 'production';
+  if (isDev) console.error(err.stack);
   res.status(err.status || 500).json({
-    message: err.message || 'Internal server error.',
+    message: isDev ? err.message : 'Internal server error.',
   });
 });
 
