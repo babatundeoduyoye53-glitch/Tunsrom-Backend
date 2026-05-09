@@ -4,7 +4,6 @@ const helmet = require('helmet');
 const cors = require('cors');
 const path = require('path');
 const rateLimit = require('express-rate-limit');
-const mongoSanitize = require('express-mongo-sanitize');
 const connectDB = require('./config/db');
 
 // Route imports
@@ -67,8 +66,23 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // ── NoSQL injection prevention ────────────────────────────────────────────────
-// Strips $ and . from user-supplied keys to prevent MongoDB operator injection
-app.use(mongoSanitize());
+// Recursively strip keys starting with $ or containing . from request body
+function sanitizeObject(obj) {
+  if (obj && typeof obj === 'object' && !Array.isArray(obj)) {
+    for (const key of Object.keys(obj)) {
+      if (key.startsWith('$') || key.includes('.')) {
+        delete obj[key];
+      } else {
+        sanitizeObject(obj[key]);
+      }
+    }
+  }
+  return obj;
+}
+app.use((req, res, next) => {
+  if (req.body) sanitizeObject(req.body);
+  next();
+});
 
 // ── Rate limiting ─────────────────────────────────────────────────────────────
 
