@@ -1,8 +1,10 @@
 require('dotenv').config();
 const express = require('express');
+const helmet = require('helmet');
 const cors = require('cors');
 const path = require('path');
 const rateLimit = require('express-rate-limit');
+const mongoSanitize = require('express-mongo-sanitize');
 const connectDB = require('./config/db');
 
 // Route imports
@@ -14,72 +16,130 @@ const settingsRoutes = require('./routes/settings');
 
 const app = express();
 
-// Connect to MongoDB
+// ── Trust proxy (required for Render / reverse proxies) ──────────────────────
+app.set('trust proxy', 1);
+
+// ── Connect to MongoDB ────────────────────────────────────────────────────────
 connectDB();
 
-// Middleware
-app.use(cors({
-  origin: [
-    'http://localhost:5173',
-    'http://localhost:3000',
-    'https://tunsrom-fabrics-p3gr.vercel.app',
-    process.env.FRONTEND_URL,
-  ].filter(Boolean),
-  credentials: true,
+// ── Security headers (Helmet) ─────────────────────────────────────────────────
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: 'cross-origin' }, // allow images to load cross-origin
+  contentSecurityPolicy: false, // frontend is on a separate domain — CSP handled there
 }));
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
 
-// Rate limiting — auth endpoints only (100 req / 15 min per IP)
-const authLimiter = rateLimit({
+// Remove X-Powered-By header (don't advertise Express)
+app.disable('x-powered-by');
+
+// ── CORS ──────────────────────────────────────────────────────────────────────
+const allowedOrigins = [
+  'http://localhost:5173',
+  'http://localhost:3000',
+  'https://tunsrom-fabrics-p3gr.vercel.app',
+  process.env.FRONTEND_URL,
+].filter(Boolean);
+
+app.use(cors({
+  origin: (origin, callback) => {
+    // Allow requests with no origin (mobile apps, curl, Postman)
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.includes(origin)) return callback(null, true);
+    callback(new Error(`CORS: origin ${origin} not allowed`));
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+}));
+
+// ── Body parsing ──────────────────────────────────────────────────────────────
+app.use(express.json({ limit: '10kb' }));       // reject oversized JSON payloads
+app.use(express.urlencoded({ extended: true, limit: '10kb' }));
+
+// ── NoSQL injection prevention ────────────────────────────────────────────────
+// Strips $ and . from user-supplied keys to prevent MongoDB operator injection
+app.use(mongoSanitize());
+
+// ── Rate limiting ─────────────────────────────────────────────────────────────
+
+// General API limiter — 200 req / 15 min per IP
+const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 100,
+  max: 200,
   standardHeaders: true,
   legacyHeaders: false,
-  message: { message: 'Too many requests from this IP, please try again after 15 minutes.' },
+  message: { message: 'Too many requests. Please try again later.' },
 });
 
-// Stricter limiter for login endpoints (20 req / 15 min per IP)
+// Auth endpoints — 50 req / 15 min per IP
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 50,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: 'Too many requests from this IP. Please try again after 15 minutes.' },
+});
+
+// Login endpoints — 10 attempts / 15 min per IP (brute-force protection)
 const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: 'Too many login attempts. Please try again after 15 minutes.' },
+});
+
+// Order creation — 20 orders / 15 min per IP
+const orderLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 20,
   standardHeaders: true,
   legacyHeaders: false,
-  message: { message: 'Too many login attempts, please try again after 15 minutes.' },
+  message: { message: 'Too many orders submitted. Please wait a few minutes.' },
 });
 
-// Serve uploaded product images as static files (local dev only — production uses Cloudinary)
+// ── Static files ──────────────────────────────────────────────────────────────
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
-// Routes
+// ── Routes ────────────────────────────────────────────────────────────────────
+app.use('/api', apiLimiter);
 app.use('/api/auth', authLimiter, authRoutes);
 app.use('/api/auth/login', loginLimiter);
+app.use('/api/auth/register', loginLimiter);
 app.use('/api/products', productRoutes);
-app.use('/api/orders', orderRoutes);
+app.use('/api/orders', orderLimiter, orderRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/admin/auth/login', loginLimiter);
 app.use('/api/settings', settingsRoutes);
 
-// Health check
+// ── Health check ──────────────────────────────────────────────────────────────
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', message: 'Tunsrom Fabrics API is running' });
+  res.json({ status: 'ok' });
 });
 
-// 404 handler
+// ── 404 handler ───────────────────────────────────────────────────────────────
 app.use((req, res) => {
-  res.status(404).json({ message: `Route ${req.originalUrl} not found` });
+  res.status(404).json({ message: 'Route not found.' });
 });
 
-// Global error handler
+// ── Global error handler ──────────────────────────────────────────────────────
+// eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {
-  console.error(err.stack);
-  const message = process.env.NODE_ENV === 'production'
-    ? 'Internal server error'
-    : err.message || 'Internal server error';
-  res.status(err.status || 500).json({ message });
+  // Don't leak stack traces in production
+  const isDev = process.env.NODE_ENV !== 'production';
+  if (isDev) console.error(err.stack);
+
+  // CORS errors
+  if (err.message && err.message.startsWith('CORS:')) {
+    return res.status(403).json({ message: 'Not allowed by CORS.' });
+  }
+
+  res.status(err.status || 500).json({
+    message: isDev ? err.message : 'Internal server error.',
+  });
 });
 
+// ── Start server ──────────────────────────────────────────────────────────────
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
+  console.log(`Server running on port ${PORT} [${process.env.NODE_ENV || 'development'}]`);
 });

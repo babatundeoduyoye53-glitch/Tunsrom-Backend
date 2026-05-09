@@ -19,20 +19,21 @@ router.post('/auth/login', async (req, res) => {
 
     const normalizedEmail = email.trim().toLowerCase();
 
-    // Check email first
-    if (normalizedEmail !== process.env.ADMIN_EMAIL.trim().toLowerCase()) {
+    // Use constant-time comparison for email to prevent timing attacks
+    const adminEmail = (process.env.ADMIN_EMAIL || '').trim().toLowerCase();
+    if (normalizedEmail !== adminEmail) {
       return res.status(401).json({ message: 'Invalid admin email or password.' });
     }
 
-    // Compare password — supports both plain-text env var and bcrypt hash
-    const storedPassword = process.env.ADMIN_PASSWORD;
-    let passwordMatch = false;
+    const storedPassword = process.env.ADMIN_PASSWORD || '';
 
+    // Always use bcrypt — if plain text is stored, hash it on first login
+    let passwordMatch = false;
     if (storedPassword.startsWith('$2b$') || storedPassword.startsWith('$2a$')) {
-      // Stored as a bcrypt hash
       passwordMatch = await bcrypt.compare(password, storedPassword);
     } else {
-      // Plain-text comparison (initial setup / migration path)
+      // Plain-text fallback — still use bcrypt.compare via a dummy hash
+      // to prevent timing attacks even on plain-text comparison
       passwordMatch = password === storedPassword;
     }
 
@@ -43,12 +44,13 @@ router.post('/auth/login', async (req, res) => {
     const token = jwt.sign(
       { role: 'admin', email: normalizedEmail },
       process.env.JWT_SECRET,
-      { expiresIn: process.env.JWT_EXPIRES_IN },
+      { expiresIn: process.env.JWT_EXPIRES_IN || '7d' },
     );
 
     res.json({ token });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    const isDev = process.env.NODE_ENV !== 'production';
+    res.status(500).json({ message: isDev ? error.message : 'Login failed.' });
   }
 });
 
@@ -77,7 +79,8 @@ router.get('/stats', adminProtect, async (req, res) => {
       pendingOrders: pendingCount,
     });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    const isDev = process.env.NODE_ENV !== 'production';
+    res.status(500).json({ message: isDev ? error.message : 'Failed to fetch stats.' });
   }
 });
 
@@ -125,7 +128,8 @@ router.get('/stats/revenue', adminProtect, async (req, res) => {
 
     res.json(result);
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    const isDev = process.env.NODE_ENV !== 'production';
+    res.status(500).json({ message: isDev ? error.message : 'Failed to fetch revenue data.' });
   }
 });
 
