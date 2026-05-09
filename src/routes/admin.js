@@ -53,7 +53,7 @@ router.post('/auth/login', async (req, res) => {
 
     res.json({ token });
   } catch (error) {
-    console.error('Admin login error:', error.message);
+    console.error('Admin login error:', error.message, error.stack);
     res.status(500).json({ message: error.message });
   }
 });
