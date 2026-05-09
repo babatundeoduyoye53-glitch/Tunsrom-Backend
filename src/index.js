@@ -22,6 +22,11 @@ app.set('trust proxy', 1);
 // ── Connect to MongoDB ────────────────────────────────────────────────────────
 connectDB();
 
+// ── Health check — before all middleware so it always responds ────────────────
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'ok' });
+});
+
 // ── Security headers (Helmet) ─────────────────────────────────────────────────
 app.use(helmet({
   crossOriginResourcePolicy: { policy: 'cross-origin' }, // allow images to load cross-origin
@@ -41,10 +46,11 @@ const allowedOrigins = [
 
 app.use(cors({
   origin: (origin, callback) => {
-    // Allow requests with no origin (mobile apps, curl, Postman)
+    // Allow requests with no origin (mobile apps, curl, server-to-server)
     if (!origin) return callback(null, true);
     if (allowedOrigins.includes(origin)) return callback(null, true);
-    callback(new Error(`CORS: origin ${origin} not allowed`));
+    // Reject unknown origins silently — don't throw, just deny
+    return callback(null, false);
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
@@ -111,11 +117,6 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/admin/auth/login', loginLimiter);
 app.use('/api/settings', settingsRoutes);
 
-// ── Health check ──────────────────────────────────────────────────────────────
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok' });
-});
-
 // ── 404 handler ───────────────────────────────────────────────────────────────
 app.use((req, res) => {
   res.status(404).json({ message: 'Route not found.' });
@@ -124,15 +125,8 @@ app.use((req, res) => {
 // ── Global error handler ──────────────────────────────────────────────────────
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {
-  // Don't leak stack traces in production
   const isDev = process.env.NODE_ENV !== 'production';
   if (isDev) console.error(err.stack);
-
-  // CORS errors
-  if (err.message && err.message.startsWith('CORS:')) {
-    return res.status(403).json({ message: 'Not allowed by CORS.' });
-  }
-
   res.status(err.status || 500).json({
     message: isDev ? err.message : 'Internal server error.',
   });
