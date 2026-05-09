@@ -49,8 +49,8 @@ router.post('/auth/login', async (req, res) => {
 
     res.json({ token });
   } catch (error) {
-    const isDev = process.env.NODE_ENV !== 'production';
-    res.status(500).json({ message: isDev ? error.message : 'Login failed.' });
+    console.error('Admin login error:', error.message);
+    res.status(500).json({ message: error.message });
   }
 });
 
