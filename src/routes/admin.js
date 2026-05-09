@@ -8,6 +8,16 @@ const { adminProtect } = require('../middleware/adminMiddleware');
 
 const router = express.Router();
 
+// GET /api/admin/auth/check — temporary debug endpoint
+router.get('/auth/check', (req, res) => {
+  res.json({
+    hasEmail: !!process.env.ADMIN_EMAIL,
+    hasPassword: !!process.env.ADMIN_PASSWORD,
+    hasJwtSecret: !!process.env.JWT_SECRET,
+    emailValue: process.env.ADMIN_EMAIL ? process.env.ADMIN_EMAIL.substring(0, 5) + '...' : 'NOT SET',
+  });
+});
+
 // POST /api/admin/auth/login
 router.post('/auth/login', async (req, res) => {
   try {
