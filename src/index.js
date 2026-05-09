@@ -63,8 +63,8 @@ app.use(cors({
 }));
 
 // ── Body parsing ──────────────────────────────────────────────────────────────
-app.use(express.json({ limit: '10kb' }));       // reject oversized JSON payloads
-app.use(express.urlencoded({ extended: true, limit: '10kb' }));
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
 // ── NoSQL injection prevention ────────────────────────────────────────────────
 // Strips $ and . from user-supplied keys to prevent MongoDB operator injection
