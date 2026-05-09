@@ -21,11 +21,17 @@ router.post('/auth/login', async (req, res) => {
 
     // Use constant-time comparison for email to prevent timing attacks
     const adminEmail = (process.env.ADMIN_EMAIL || '').trim().toLowerCase();
+    if (!adminEmail) {
+      return res.status(500).json({ message: 'Admin credentials not configured on server.' });
+    }
     if (normalizedEmail !== adminEmail) {
       return res.status(401).json({ message: 'Invalid admin email or password.' });
     }
 
     const storedPassword = process.env.ADMIN_PASSWORD || '';
+    if (!storedPassword) {
+      return res.status(500).json({ message: 'Admin password not configured on server.' });
+    }
 
     // Always use bcrypt — if plain text is stored, hash it on first login
     let passwordMatch = false;
